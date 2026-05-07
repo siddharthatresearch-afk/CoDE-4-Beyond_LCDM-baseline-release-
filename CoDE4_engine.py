@@ -4,7 +4,7 @@ c = 2.99792458e8
 
 Mpc_to_m = 3.085677581e22
 
-theta_obs = 0.01041  
+theta_obs = 0.01041
 
 Omega_m0 = 0.315
 
@@ -44,6 +44,8 @@ def C_of_z(z):
 
 def H(z, H0):
 
+    z = np.array(z)
+
     radiation_term = Omega_r0*(1+z)**4*(1 + epsilon*z/(1+z)**3)
 
     Ez = np.sqrt(
@@ -68,7 +70,7 @@ def comoving_distance(z, H0):
 
     z_vals = np.linspace(0, z, 5000)
 
-    integrand = c / np.array([H(zz, H0) for zz in z_vals])
+    integrand = c / H(z_vals, H0)
 
     return np.trapezoid(integrand, z_vals) / Mpc_to_m
 
@@ -90,7 +92,7 @@ def sound_horizon(H0):
 
     z_vals = np.logspace(np.log10(1100), 7, 20000)
 
-    integrand = np.array([sound_speed(z)/H(z, H0) for z in z_vals])
+    integrand = sound_speed(z_vals) / H(z_vals, H0)
 
     rs_m = np.trapezoid(integrand, z_vals)
 
@@ -154,7 +156,7 @@ def age_today(H0):
 
     z_vals = np.logspace(-5, 9, 30000)
 
-    integrand = 1 / ((1 + z_vals) * np.array([H(z, H0) for z in z_vals]))
+    integrand = 1 / ((1 + z_vals) * H(z_vals, H0))
 
     age_sec = np.trapezoid(integrand, z_vals)
 
@@ -198,41 +200,46 @@ def D_V(z, H0):
 
 def growth_solver(H0):
 
-    a_vals = np.logspace(-4, 0, 5000)
-
+    a_vals = np.logspace(-4, 0, 6000)
     growth = np.zeros(len(a_vals))
 
     delta = a_vals[0]
-
     delta_p = 1.0
 
-    for i in range(len(a_vals)-1):
+    # Precompute H(0) once (efficiency + stability)
+    H0_val = H(0, H0)
+
+    for i in range(len(a_vals) - 1):
 
         a = a_vals[i]
-
         da = a_vals[i+1] - a
 
-        z = (1/a) - 1
-
+        z = (1 / a) - 1
         Hz = H(z, H0)
 
-        dz = 1e-6
+        # Adaptive derivative step (more stable than fixed dz)
+        dz = 1e-5 * (1 + z)
 
-        dH_da = ((H(z+dz, H0) - Hz)/dz)*(-1/a**2)
+        # Convert dH/dz to dH/da
+        dH_dz = (H(z + dz, H0) - Hz) / dz
+        dH_da = dH_dz * (-1 / a**2)
 
-        Omega_m_a = (Omega_m0*(1+z)**3)/(Hz/H(0,H0))**2
+        # Proper Ω_m(a)
+        Omega_m_a = (Omega_m0 * (1 + z)**3) / ((Hz / H0_val)**2)
 
-        G_ratio = 1 + beta*f_of_z(z)
+        # Modified gravity / growth coupling
+        G_ratio = 1 + beta * f_of_z(z)
 
-        A = (3/a) + (dH_da/Hz)
+        # Growth equation coefficients
+        A = (3 / a) + (dH_da / Hz)
+        B = (1.5 * Omega_m_a * G_ratio) / (a**2)
 
-        B = (1.5*Omega_m_a*G_ratio)/(a**2)
+        # Second-order differential equation
+        delta_dd = -A * delta_p + B * delta
 
-        delta_dd = -A*delta_p + B*delta
-
-        delta_p += delta_dd*da
-
-        delta += delta_p*da
+        # Integrate
+        delta_p += delta_dd * da
+        delta += delta_p * da
 
         growth[i+1] = delta
 
@@ -296,7 +303,7 @@ def CMB_damping_test(H0_SI):
 
         print(f"z={z:4d}: deviation = {deviation*100:6.3f}%")
 
-    print("\nConsistency Status: EXCELLENT ✅ (Deviations < 1%)")
+    print("\nConsistency Status: Consistent  (Deviations < 1%)")
 
 # ==========================================================
 
@@ -330,11 +337,13 @@ def growth_index_gamma(H0):
 
         Hz = H(z, H0)
 
-        Omega_m_a = (Omega_m0*(1+z)**3)/(Hz/H(0, H0))**2
+        Omega_m_a = (Omega_m0*(1+z)**3) / ((Hz / H(0, H0))**2)
 
-        gamma = np.log(f_growth[idx]) / np.log(Omega_m_a)
-
-        print(f"z={z:.1f}  ->  gamma = {gamma:.4f}")
+        if Omega_m_a > 0 and f_growth[idx] > 0:
+            gamma = np.log(f_growth[idx]) / np.log(Omega_m_a)
+            print(f"z={z:.1f}  ->  gamma = {gamma:.4f}")
+        else:
+            print(f"z={z:.1f}  ->  gamma undefined")
 
     print("\nExpected ΛCDM value ≈ 0.545")
 
@@ -352,7 +361,7 @@ def equality_redshift():
 
     print(f"z_eq = {z_eq:.2f}")
 
-    print("Expected range: 3200 – 3600 (Planck-consistent)")
+    print("Expected range: 3200 – 3600  (High amplitude)")
 
 
 # ==========================================================
@@ -395,68 +404,49 @@ def acoustic_peak_test(H0):
 
 # ==========================================================
 
-def matter_turnover_test():
+def matter_turnover_test(H0_km):
 
     print("\n--- MATTER POWER SPECTRUM TURNOVER TEST ---")
 
-    # Use solved H0 directly
-
-    H0_km = H0_solution
-
     # Dimensionless Hubble parameter
-
     h = H0_km / 100.0
 
     # Equality redshift
-
     z_eq = (Omega_m0 / Omega_r0) - 1
 
     # Scale factor at equality
-
     a_eq = 1 / (1 + z_eq)
 
-    # Convert H0 to SI units for H(z)
-
+    # Convert H0 to SI units
     H0_SI = H0_km * 1000 / Mpc_to_m
 
     # Expansion rate at equality
-
     Hz_eq = H(z_eq, H0_SI)
 
-    # Equality turnover scale (1/Mpc)
-
+    # Turnover scale (1/m)
     k_eq = (a_eq * Hz_eq) / c
 
+    # Convert to 1/Mpc
     k_eq *= Mpc_to_m
 
-    # Convert to h/Mpc (survey convention)
-
+    # Convert to h/Mpc
     k_eq_h = k_eq / h
 
-    # Model-consistent theoretical benchmark
-
+    # Standard theoretical approximation
     benchmark = 0.073 * Omega_m0 * h
 
     deviation = abs(k_eq_h - benchmark) / benchmark * 100
 
     print(f"Equality redshift z_eq = {z_eq:.2f}")
-
     print(f"Turnover scale k_eq = {k_eq:.5f} Mpc^-1")
-
     print(f"Turnover scale k_eq = {k_eq_h:.5f} h/Mpc")
-
     print(f"Theoretical expectation ≈ {benchmark:.5f} h/Mpc")
-
     print(f"Deviation = {deviation:.2f}%")
 
     if deviation < 2:
-
-        print("Turnover status: EXCELLENT ✅")
-
+        print("Turnover status: Consistent")
     else:
-
-        print("Turnover status: SHIFTED ")
-
+        print("Turnover status: Noticeable deviation")
 # ==========================================================
 # BBN CONSISTENCY TEST
 # ==========================================================
@@ -478,9 +468,9 @@ def BBN_test(H0):
     print(f"Deviation = {deviation*100:.3f}%")
 
     if abs(deviation) < 0.01:
-        print("BBN status: EXCELLENT ✅")
+        print("BBN status: Consistent ")
     else:
-        print("BBN status: SHIFTED ⚠️")
+        print("BBN status: Noticeable deviation ")
 
 # ==========================================================
 # ISW EFFECT TEST (GRAVITATIONAL POTENTIAL EVOLUTION)
@@ -508,7 +498,7 @@ def ISW_test(H0):
         idx = np.argmin(np.abs(a_vals - 1/(1+z_target)))
         val = dPhi_dln_a[idx]
 
-        status = "DECAYING (Standard) ✅" if val < 0 else "GROWING (Non-standard) ⚠️"
+        status = "DECAYING (Standard) " if val < 0 else "GROWING (Non-standard) "
         print(f"z={z_target:.1f}  ->  dPhi/dln(a) = {val: .6f} | {status}")
 
     print("\nResult: Potential decay at low-z is consistent with Dark Energy dominance.")
@@ -539,9 +529,9 @@ def cmb_shift_parameter(H0_km_s):
 
     deviation = abs(R - 1.7502)
     if deviation < 0.005:
-        print("Shift Parameter: PERFECT MATCH ✅")
+        print("Shift Parameter: Consistent ")
     else:
-        print(f"Shift Parameter: SHIFTED (Dev = {deviation:.4f}) ⚠️")
+        print(f"Shift Parameter: Noticeable deviation (Dev = {deviation:.4f}) ")
 
     return R
 
@@ -563,7 +553,9 @@ def sigma8_prediction(H0_model):
     beta_orig, eps_orig = beta, epsilon
 
     beta, epsilon = 0.0, 0.0
-    _, growth_LCDM = growth_solver(67.4) # Planck Baseline H0
+    H0_LCDM_SI = 67.4 * 1000 / Mpc_to_m
+
+    _, growth_LCDM = growth_solver(H0_LCDM_SI) # Planck Baseline H0
 
     # Restore your model parameters
     beta, epsilon = beta_orig, eps_orig
@@ -572,17 +564,16 @@ def sigma8_prediction(H0_model):
     # Sigma8_Model = Sigma8_LCDM * (Growth_Model / Growth_LCDM)
     sigma8_LCDM_obs = 0.811
     ratio = growth_model[-1] / growth_LCDM[-1]
-
     sigma8_today = sigma8_LCDM_obs * ratio
-    return sigma8_today
+
     print(f"Model Growth Boost: {ratio:.4f}x")
     print(f"Predicted σ8(today) = {sigma8_today:.4f}")
     print(f"Standard Planck Target = 0.811")
 
     if abs(sigma8_today - 0.811) < 0.02:
-        print("Clumping Status: ALIGNED ✅")
+        print("Clumping Status: ALIGNED ")
     else:
-        print("Clumping Status: MODIFIED GROWTH 🚀")
+        print("Clumping Status: MODIFIED GROWTH ")
 
     return sigma8_today
 
@@ -638,9 +629,9 @@ def hubble_tension_test(H0_model):
     print(f"Your Model Tension: {tension_model:.2f} σ")
 
     if tension_model < 1.0:
-        print("Conclusion: HUBBLE TENSION RESOLVED ✅")
+        print("Conclusion: HUBBLE TENSION MINIMIZED")
     else:
-        print("Conclusion: TENSION PERSISTS ⚠️")
+        print("Conclusion: TENSION PERSISTS ")
 
 # ==========================================================
 
@@ -662,15 +653,15 @@ def S8_test(sigma8_today):
 
     if 0.76 <= S8 <= 0.79:
 
-        print("S8 status: EXCELLENT ✅")
+        print("S8 status: Consistent ")
 
     elif S8 < 0.83:
 
-        print("S8 status: GOOD ⚠️")
+        print("S8 status: MILD DEVIATION ")
 
     else:
 
-        print("S8 status: PLANCK-LIKE 📊")
+        print("S8 status: PLANCK-LIKE ")
 
 
 
@@ -689,7 +680,7 @@ rs = sound_horizon(H0_SI)
 
 theta = theta_star(H0_SI)
 
-# ================= TEST SUITE =================
+# ================= TEST SUITE ================
 
 BBN_test(H0_SI)
 
@@ -701,7 +692,7 @@ fsigma8_test(H0_SI)
 
 ISW_test(H0_SI)
 
-cmb_shift_parameter(H0_SI)
+cmb_shift_parameter(H0_solution)
 
 sigma8_today = sigma8_prediction(H0_SI)
 
@@ -709,14 +700,13 @@ growth_index_gamma(H0_SI)
 
 equality_redshift()
 
-matter_turnover_test()
+matter_turnover_test(H0_solution)
 
 S8_test(sigma8_today)
 
 
-# ================= PRINT RESULTS =================
+# ================= PRINT RESULTS ================
 
-print("\n[CORE]")
 
 print(f"Derived H0: {H0_solution:.2f} km/s/Mpc")
 
@@ -744,11 +734,7 @@ print("\n--- AGE ---")
 
 print(f"Age today: {age_today(H0_SI):.4f} Gyr")
 
-print("\n--- SIGMA 8 (RAW MODEL OUTPUT) ---")
-
 sigma8_raw(H0_SI)
-
-print("\n--- HUBBLE TENSION TEST ---")
 
 hubble_tension_test(H0_solution)
 
