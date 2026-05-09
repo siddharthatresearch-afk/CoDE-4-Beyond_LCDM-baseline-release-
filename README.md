@@ -243,3 +243,20 @@ CoDE-4 should currently be interpreted as:
 - and a proof-of-concept late-time modification study.
 
 The purpose of the project is to investigate whether mild expansion-history modifications can simultaneously preserve approximate observational consistency across multiple cosmological sectors.
+
+## Ongoing Development Notice
+
+The CoDE-4 framework is currently undergoing active theoretical and statistical refinement. Over the next ~80 hours, several major additions are being integrated into the repository, including:
+
+- compressed-observable (\chi^2) consistency analysis,
+- expanded perturbation-theory documentation,
+- asymptotic and stability formalization,
+- improved theoretical derivations,
+- enhanced observational consistency tests,
+- refined repository structure and documentation,
+- and additional cosmological comparison diagnostics.
+- etc
+
+Development is actively ongoing, and the framework is expected to receive substantial updates during this period.
+
+The current release should therefore be considered an evolving exploratory research framework rather than a finalized cosmological model.
